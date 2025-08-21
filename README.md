@@ -56,7 +56,7 @@ npm install
 ---
 
 ## 4️⃣ Start the Backend Server
-
+Change the  key for tx-fee in server.js 
 Run the Node.js server:
 
 ```bash
