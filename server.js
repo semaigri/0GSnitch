@@ -4,6 +4,7 @@ const app = express()
 import mysql from "mysql"
 import {exec} from 'child_process'
 import { stderr } from 'process'
+import https from 'https';
 import fs, { cpSync } from "fs"
 import crypto, { randomBytes, sign } from "crypto"
 import cors from 'cors'
@@ -20,9 +21,9 @@ const mysqlDb =  mysql.createConnection({
   user: "root",
   database: "snitch"
 })
-
+app.use(express.json({limit: '50mb'}))
 const SECRET = randomBytes(32)
-YOUR_KEY="" //SET YOUR KEY
+const YOUR_KEY="" //SET YOUR KEY
 let verifiedUsers = []
 let usersArray = []
 app.use(express.json()); 
@@ -48,21 +49,26 @@ app.post("/sendMessage", (req,res)=>{
  let signature = req.body.signature
  let receiverKey = req.body.receiverKey
  let message = JSON.parse(req.body.message)
+ let msgType = req.body.msgType
  const messageArray = JSON.parse(req.body.message);
  console.log("Msg hash:",hash, "public key: ", senderKey, receiverKey, "msgcontent:", message)
+ console.log("msgType:",msgType)
  //verify signature and procceed
  const isSigned = secp256k1.verify(hexToBytes(JSON.parse((signature))), hash, senderKey);
  console.log("isSigned:",isSigned)
  if(isSigned){
-  const randomFileName = "Filenum"+(Math.floor((Math.random() * 1000000) + 1))
-  fs.writeFile(`${randomFileName}.txt`, Buffer.from(messageArray), (err)=>{
+  let randomFileName = "Filenum"+(Math.floor((Math.random() * 1000000) + 1))
+  fs.writeFile(`${randomFileName}`, Buffer.from(messageArray), (err)=>{
    if(!err){
      console.log(randomFileName)
      let rootId, i=0
      async function uploadFile(){
-     while(!rootId ){
+     while(!rootId && i<=5){
+      console.log("executing1")
       rootId=await new Promise((resolve)=>{
-        exec(`./0g-storage-client-1.0.0/0g-storage-client upload --url https://evmrpc-testnet.0g.ai  --key ${YOUR_KEY} --indexer https://indexer-storage-testnet-turbo.0g.ai  --file ${randomFileName}  --fee 0.0002`,(err,stdout, stderr)=>{
+        console.log("executing2")
+       // randomFileName = "downloadFilenum712639"
+        exec(`./0g-storage-client upload --url https://evmrpc-testnet.0g.ai  --key ${YOUR_KEY} --indexer https://indexer-storage-testnet-turbo.0g.ai  --file ${randomFileName}  --fee 0.01`,(err,stdout, stderr)=>{
             console.log("FINISHED")
             if (err) {
               console.error(`Exec error: ${err.message}`)
@@ -80,9 +86,10 @@ app.post("/sendMessage", (req,res)=>{
             console.log("root:",rootId)
          if(!rootId){console.log("uploading failed",i, err.message);return}
          mysqlDb.query(`INSERT INTO messages VALUES("${rootId}", "${senderKey}", "${req.body.iv}", "${ new Date().toISOString().slice(0, 19).replace('T', ' ')  
-         }", "${receiverKey}");`, (err,result)=>{
+         }", "${receiverKey}", "${msgType}");`, (err,result)=>{
            if(!err && result.affectedRows>0){
              console.log("Pasted")
+             fs.rename(`${randomFileName}`, `${rootId}`, (err)=>{if(err){console.log(err)}else{console.log("renamed")}})
            }
            else{
              console.log(err)
@@ -137,23 +144,42 @@ mysqlDb.query(
         console.log("Total messages:", result.length)
         for(let i=0; i<result.length; i++){
           console.log(result[i])
-          await new Promise((resolve)=>{
-            const randomFileName = "Filenum"+(Math.floor((Math.random() * 1000000) + 1))
-            exec(`./0g-storage-client download --indexer https://indexer-storage-testnet-turbo.0g.ai --root ${result[i].itsRootId} --file download${randomFileName}.txt
-      `, (err,stdout, stderr)=>{
-        if(err)console.log(err)
-        if(stdout)console.log(stdout)
-        if(stderr)console.log(stderr)
-        fs.readFile(`download${randomFileName}.txt`, (err,data)=>{
+          let rootId = result[i].itsRootId
+          let randomFileName = rootId
+          if(fs.existsSync(`${randomFileName}`)){
+            console.log("file in the dir")
+          }
+          else{
+            await new Promise((resolve)=>{
+              randomFileName = "Filenum"+(Math.floor((Math.random() * 1000000) + 1))
+              result[i].itsRootId = "downloadFilenum712639"
+             exec(`./0g-storage-client download --indexer https://indexer-storage-testnet-turbo.0g.ai --root ${result[i].itsRootId} --file ${randomFileName}
+       `, (err,stdout, stderr)=>{
+         if(err)console.log(err)
+         if(stdout)console.log(stdout)
+         if(stderr)console.log(stderr)
+           fs.rename(`${randomFileName}`, `${rootId}`, (err)=>{if(err){console.log(err)}else{console.log("renamed");randomFileName=rootId}})
+           resolve(randomFileName)
+         })
+         })  
+         //end of await 
+          }//end of if
+          
+        await new Promise((resolve)=>{
+          fs.readFile(`${randomFileName}`, (err,data)=>{
             if(data){
               let type
-              if(result[i].itsSender == senderKey){type="sent"}
-              else{type="received"}
+              
+              if(result[i].itsType=="image"){console.log("img");type="image"}
+              else if(result[i].itsType=="video"){console.log("img");type="video"}
+              else if(result[i].itsSender == senderKey){console.log("HAPPENED");type="sent"}
+              else {console.log("HAPPENED2");type="received"}
             filesArr[i] = {
               msg: data,
               iv: result[i].itsRandomNum,
               time: result[i].itsTime,
-              type: type
+              rootId:result[i].itsRootId,
+              msgType: type,
             }//.toString('utf8');
             console.log("filesArr,", filesArr[i])
               if(result.length == i+1){
@@ -168,14 +194,16 @@ mysqlDb.query(
                 res.set("found", "no")
                 resolve(randomFileName)
               }
-
+  
             }
             else{
               resolve("")
             }
         })
+
         })
-        })
+        
+
         }
        
       }
@@ -236,16 +264,22 @@ app.get("/signUp", (req,res)=>{
     }
   })
 })
+/*
+const options = {
+  key: fs.readFileSync('/root/private.key'),
+  cert: fs.readFileSync('/root/certificate.crt')
+};
 
-app.listen(4000,"0.0.0.0", ()=>{
-  console.log("listening...")
+https.createServer(options, app).listen(4000, () => {
+  console.log('HTTPS API running on 4000');
+});*/
+app.listen(4000,"0.0.0.0",()=>{
+console.log("ye")
 })
 
-
 async function testUPload(){
-
-
-const file = await ZgFile.fromFilePath("Filenum618378.txt");
+  //calculate root hash
+const file = await ZgFile.fromFilePath("test.txt");
 var [tree, err] = await file.merkleTree();
 if (err === null) {
   console.log("File Root Hash: ", tree.rootHash());
@@ -270,4 +304,4 @@ if (err === null) {
   }
   file.close()
 }
-testUPload()
+//testUPload()  

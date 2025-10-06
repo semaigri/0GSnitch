@@ -1,6 +1,8 @@
 module github.com/0glabs/0g-storage-client
 
-go 1.21.5
+go 1.21
+
+toolchain go1.23.2
 
 require (
 	github.com/ethereum/go-ethereum v1.14.7
@@ -93,7 +95,9 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
+	github.com/onsi/gomega v1.27.1 // indirect
 	github.com/openweb3/go-ethereum-hdwallet v0.1.0 // indirect
 	github.com/openweb3/go-sdk-common v0.0.0-20240627072707-f78f0155ab34 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
